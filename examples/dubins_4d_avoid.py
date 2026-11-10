@@ -51,5 +51,5 @@ opt_a, opt_w = my_car.optCtrl_inPython(spat_deriv_vector)
 
 # Visualize the results
 po = PlotOptions(do_plot=True, plot_type="set", plotDims=[0,1,3],
-                  slicesCut=[10], save_fig=True, filename="test_obs_avoid.png")
+                  slicesCut=[10], save_fig=True, filename="test_obs_avoid.png", interactive_html=True)
 visualize_plots(result, g, po)

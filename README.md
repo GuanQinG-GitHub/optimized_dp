@@ -23,6 +23,42 @@ Please install the following:
 
     ```sudo apt install libtinfo5 ``` 
 
+### Windows (WSL 2)
+HeteroCL 0.3 only ships Linux builds, so on Windows use WSL 2 with Ubuntu 22.04 and follow the Linux steps inside it:
+```bash
+# PowerShell (admin), only if Ubuntu 22.04 is not installed yet; reboot afterwards
+wsl --install -d Ubuntu-22.04
+
+# Inside Ubuntu 22.04
+sudo apt-get update && sudo apt-get install -y libtinfo5 git wget
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3 && ~/miniconda3/bin/conda init bash && exec bash
+# recent conda versions require accepting the Terms of Service of the default channels
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+git clone https://github.com/GuanQinG-GitHub/optimized_dp.git && cd optimized_dp
+conda env create -f environment.yml && conda activate odp && pip install -e .
+python examples/dubins_4d_avoid.py   # sanity check: ends with "Finished solving"
+```
+
+
+# Example: avoid problem with a grid-based SDF obstacle map
+[`examples/dubins_4d_avoid_sdf.py`](examples/dubins_4d_avoid_sdf.py) solves the same problem as `examples/dubins_4d_avoid.py` (4D Dubins car, same grid, 1.5 s backward reachable tube), but the target set l(s) is the **signed distance function of an indoor layout** (walls, a partition with a doorway, tables, shelves) instead of an analytic cylinder:
+
+occupancy grid (2 cm) → Euclidean distance transform → signed distance (m) → bilinear resampling onto the odp (x, y) grid → broadcast over v and θ.
+
+```bash
+conda activate odp
+cd optimized_dp
+python examples/dubins_4d_avoid_sdf.py          # build SDF, solve, save to results/dubins_4d_avoid_sdf/ (~28 MB)
+python examples/dubins_4d_avoid_sdf_report.py   # build results/dubins_4d_avoid_sdf/report.html (~18 MB)
+```
+* `results/` is git-ignored; rerun the two commands to regenerate it.
+* Saved outputs: `occupancy.npy`, `sdf_map.npy`, `sdf_analytic.npy`, `map_x.npy`, `map_y.npy`, `l_xy.npy`, `V_terminal.npy` (V at t = T), `V_vslice_all_t.npy` (all time steps at v = 2.11 m/s) and `run_info.json` (setup, timings, versions).
+* The report shows the SDF (with validation against the exact distance), a playable 3D animation of the unsafe set, 2D slices at the terminal time for headings 0°, ±90°, 180°, and the math and numerical setup with timings. KaTeX for the formulas loads from a CDN; everything else is inlined.
+* Reference run (AMD Ryzen 7 9700X, 16 threads, WSL 2): SDF build ≈ 25 ms, HJSolver ≈ 12 s (kernel ≈ 11.4 s, 210 sub-steps); unsafe grid points grow from 24 % to 50 %.
+* To use your own map, replace the rasterized `occ` in `build_l()` with your boolean occupancy grid and set `map_x`/`map_y` to its cell-center coordinates in meters; `sdf_from_occupancy()` and the resampling stay the same. Set `ROBOT_RADIUS` to inflate obstacles by the robot footprint.
+
 
 # Solving the Hamilton-Jacobi-Issac (HJI) PDE
 * We provide a running example of solving HJI PDE in the file [`examples/plotting_example.py`](https://github.com/SFU-MARS/optimized_dp/examples/examples.py):

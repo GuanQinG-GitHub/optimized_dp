@@ -4,6 +4,31 @@ import plotly.express as px
 from odp.Grid import Grid
 import numpy as np
 
+# "grid on" look for 3D scenes: white background, mid-grey grid lines.
+# The "box on" edges are drawn by add_box_outline (plotly's mirror only draws some).
+BOX_GRID_AXIS = dict(showgrid=True, gridcolor="#999999", gridwidth=1,
+                     showline=False, showbackground=False, zeroline=False, ticks="outside")
+
+def add_box_outline(fig, grid):
+    """Draw all 12 edges of the 3D plotting volume (plotly's mirror only draws some)"""
+    (x0, y0, z0), (x1, y1, z1) = grid.min[:3], grid.max[:3]
+    corners = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+               (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+             (0, 4), (1, 5), (2, 6), (3, 7)]
+    xs, ys, zs = [], [], []
+    for a, b in edges:
+        for p in (corners[a], corners[b], (None, None, None)):
+            xs.append(p[0]); ys.append(p[1]); zs.append(p[2])
+    fig.add_trace(go.Scatter3d(x=xs, y=ys, z=zs, mode="lines",
+                               line=dict(color="black", width=3),
+                               showlegend=False, hoverinfo="skip"))
+    # Pin axis ranges just outside the grid so the outline frames the plot and isn't clipped
+    pad = [0.01 * (hi - lo) for lo, hi in ((x0, x1), (y0, y1), (z0, z1))]
+    fig.update_scenes(xaxis_range=[x0 - pad[0], x1 + pad[0]],
+                      yaxis_range=[y0 - pad[1], y1 + pad[1]],
+                      zaxis_range=[z0 - pad[2], z1 + pad[2]])
+
 def plot_isosurface(grid, my_V, plot_option):
 
     dims_plot = plot_option.dims_plot
@@ -49,6 +74,8 @@ def plot_isosurface(grid, my_V, plot_option):
             showlegend=plot_option.showlegend,
             showscale=plot_option.showscale,
         ))
+        fig.update_scenes(xaxis=BOX_GRID_AXIS, yaxis=BOX_GRID_AXIS, zaxis=BOX_GRID_AXIS)
+        add_box_outline(fig, grid)
 
     if len(dims_plot) == 3 and len(my_V.shape) == 4:
         # Plot 3D isosurface with animation
@@ -115,7 +142,9 @@ def plot_isosurface(grid, my_V, plot_option):
                         camera_eye={"x": 0, "y": -1, "z": 0.5},
                         aspectratio={"x": 1, "y": 1, "z": 0.6}
                         ))
-        
+        fig.update_scenes(xaxis=BOX_GRID_AXIS, yaxis=BOX_GRID_AXIS, zaxis=BOX_GRID_AXIS)
+        add_box_outline(fig, grid)
+
         fig = slider_define(fig)
 
 
