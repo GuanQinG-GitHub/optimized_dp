@@ -67,8 +67,14 @@ def solveValueIteration(MDP_obj, grid, action_space,
 def HJSolver(dynamics_obj, grid, multiple_value, tau, compMethod,
              saveAllTimeSteps=False,
              accuracy="medium", untilConvergent=False, epsilon=2e-3,
-             computeTimeToReach=False, solve_forward=False):
-    
+             computeTimeToReach=False, solve_forward=False, discount=0.0):
+    # discount (gamma >= 0): discounted HJ-VI 0 = min{l - V, D_t V + H(x, D_x V) - gamma * V}.
+    # In time-to-go tau each RK stage integrates dV/dtau = H - gamma * V before the usual
+    # TargetSetMode clamp, so V(x, tau) = max_u min_{s <= tau} e^{-gamma s} l(x(s)).
+    # discount = 0 leaves the original scheme unchanged.
+    if discount < 0:
+        raise ValueError("discount must be >= 0")
+
     print("Welcome to optimized_dp \n")
     if type(multiple_value) == list:
         # We have both goal and obstacle set
@@ -242,10 +248,13 @@ def HJSolver(dynamics_obj, grid, multiple_value, tau, compMethod,
 
             # if stabilizing time step is more than the step to next time, choose the latter
             dt = min(tau[i] - tNow,  dt)
+            # keep the explicit discount term -gamma*V stable and accurate (never binds for gamma < 1 on usual grids)
+            if discount > 0:
+                dt = min(dt, 0.5 / discount)
 
             # Integrate using delta_t, doing this once corresponds to first order TVD RK
             # TODO: In-place update for more memory efficiency
-            V_tp1 = V_t.asnumpy() + Hamiltonian.asnumpy() *  dt
+            V_tp1 = V_t.asnumpy() + (Hamiltonian.asnumpy() - discount * V_t.asnumpy()) * dt
             
             # If accuracy medium, we will take second order TVD RK, which requires second order integration
             # TODO: make integration accuracy a separate option
@@ -277,7 +286,7 @@ def HJSolver(dynamics_obj, grid, multiple_value, tau, compMethod,
                     solve_pde(Hamiltonian, V_tp1, list_x1, list_x2, list_x3, list_x4, list_x5, list_x6, list_x7, list_x8, delta_t, t1, l0)
                 # Integrate
                 # TODO: In-place update for more memory efficiency
-                V_tp2 = V_tp1.asnumpy() + Hamiltonian.asnumpy() *  dt
+                V_tp2 = V_tp1.asnumpy() + (Hamiltonian.asnumpy() - discount * V_tp1.asnumpy()) * dt
                 V_tp1 = 0.5 * (V_t.asnumpy() + V_tp2)
 
             # Computational method

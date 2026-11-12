@@ -60,6 +60,52 @@ python examples/dubins_4d_avoid_sdf_report.py   # build results/dubins_4d_avoid_
 * To use your own map, replace the rasterized `occ` in `build_l()` with your boolean occupancy grid and set `map_x`/`map_y` to its cell-center coordinates in meters; `sdf_from_occupancy()` and the resampling stay the same. Set `ROBOT_RADIUS` to inflate obstacles by the robot footprint.
 
 
+# Discounted avoid problem (`HJSolver(..., discount=gamma)`)
+`HJSolver` takes an optional `discount=gamma` (default `0.0`, which is the original solver) and solves the discounted HJ variational inequality
+
+    0 = min{ l(x) - V(x,t),  D_t V + max_u min_d D_x V . f(x,u,d) - gamma V }
+
+In time-to-go each Runge-Kutta stage integrates `dV/dtau = H - gamma V`; the usual `TargetSetMode` clamp (`"minVWithV0"`: `V <- min(V, l)`) follows. The solution is `V(x, tau) = max_u min_{s <= tau} e^{-gamma s} l(x(s))`, so unsafe states have **V < 0** and safe states decay toward **0** (with `l < 0` inside obstacles).
+
+```bash
+conda activate odp
+cd optimized_dp
+python -m pytest -q test/test_discount.py               # closed-form check + zero-level invariance (2 tests)
+python examples/dubins_4d_avoid_discounted.py           # bounded 4D Dubins avoid, gamma = 0.3, T = 10 s, accuracy="medium" (~100 s)
+python examples/dubins_4d_avoid_discounted_view.py      # HTML review page with an animation of V over time-to-go
+python examples/discount_boundary_demo_1d.py            # 1D demo: why the grid boundary must be unsafe (~30 s)
+```
+
+**Notes from testing (4D Dubins car, 60×60×24×36 grid):**
+* **Put the state boundary into `l`.** Every non-periodic grid edge must lie in a margin where `l < 0` (e.g. walls of thickness 0.2 m, and an extended speed grid with out-of-range speeds unsafe). Otherwise trajectories that leave the grid keep safe values pinned at `l`, because the ghost cells are extrapolated from `V` and never discounted (`examples/discount_boundary_demo_1d.py`).
+* **Use `accuracy="medium"` (2nd order).** With the 1st-order solver (`"low"`) we observed two issues: it is already too conservative at `gamma = 0` (about 145k more unsafe grid points than 2nd order), and the discount then erodes its safe set (about 16% of the safe set lost at `gamma = 0.3`, `T = 10 s`, vs about 5% for 2nd order). The same happens in [hj_reachability](https://github.com/StanfordASL/hj_reachability) with its 1st-order scheme, so it is a property of the scheme, not of this code.
+* **Caveats of 2nd order:** after about 8 s the largest safe values stop decaying (a plateau above the `e^{-gamma T} max l` bound), and the zero level keeps creeping slowly into free space (about 0.8% of the safe set per second). There is no strict convergence on this grid: the max absolute difference between consecutive results levels off around 0.02–0.05 per 0.25 s, far above e.g. helperOC's default threshold of 1e-5. Pick `T` by the accuracy you need rather than waiting for convergence.
+* helperOC's discount (`extraArgs.discountFactor`) is a different formulation, `V <- lambda V + (1 - lambda) l` once per time step, whose safe values stay on the scale of `l` rather than going to 0.
+
+Zero-level sets at T = 10 s, odp (left) vs hj_reachability (right), `gamma = 0` dashed vs `gamma = 0.3` solid, low order vs high order:
+
+<img src="images/discounted_avoid/level_sets_odp_vs_hj.png" width="620">
+
+odp 2nd order, `gamma = 0.3`: zero-level sets for horizons T = 5, 5.5, …, 10 s:
+
+<img src="images/discounted_avoid/horizon_sweep_odp_2nd_order.png" width="620">
+
+Convergence indicator `max |V(tau) - V(tau - 0.25 s)|` over the whole grid:
+
+<img src="images/discounted_avoid/convergence_indicator.png" width="620">
+
+**Computation time** (bounded 4D example, 3.11M grid points, T = 10 s, output every 0.25 s; AMD Ryzen 7 9700X, 16 threads, WSL 2, CPU only):
+
+| Solver | `gamma = 0` | `gamma = 0.3` |
+|---|---|---|
+| odp, `accuracy="low"` (1st order) | 45 s | 50 s |
+| odp, `accuracy="medium"` (2nd order) | 102 s | 101 s |
+| hj_reachability, 1st order (JAX, CPU) | 108 s | 127 s |
+| hj_reachability, WENO5 + RK3 (JAX, CPU) | 410 s | 455 s |
+
+The discount itself adds no measurable cost.
+
+
 # Solving the Hamilton-Jacobi-Issac (HJI) PDE
 * We provide a running example of solving HJI PDE in the file [`examples/plotting_example.py`](https://github.com/SFU-MARS/optimized_dp/examples/examples.py):
 ```python
